@@ -22,31 +22,32 @@ class PDF extends FPDF {
     }
 
     function Header() {
-        // Logo at top left
-        if (!empty($this->companyInfo['logo']) && file_exists($this->companyInfo['logo'])) {
-            $this->Image($this->companyInfo['logo'], 10, 6, 30);
-        }
-        // Company info at right
-        $this->SetFont('Times', '', 14);
-        $this->Cell(120);
-        $this->Cell(60, 7, $this->companyInfo['name'] ?? 'Your Company', 0, 1, 'R');
-        $this->SetFont('Times', '', 9);
-        $this->Cell(120);
-        $this->MultiCell(60, 4, $this->companyInfo['address'] ?? 'Company Address', 0, 'R');
-        $this->Ln(10);
+        // Logo at top left - commented out
+        // if (!empty($this->companyInfo['logo']) && file_exists($this->companyInfo['logo'])) {
+        //     $this->Image($this->companyInfo['logo'], 10, 6, 30);
+        // }
+        // Company info at right - commented out
+        // $this->SetFont('Helvetica', '', 14);
+        // $this->Cell(120);
+        // $this->Cell(60, 7, $this->companyInfo['name'] ?? 'Your Company', 0, 1, 'R');
+        // $this->SetFont('Helvetica', '', 9);
+        // $this->Cell(120);
+        // $this->MultiCell(60, 4, $this->companyInfo['address'] ?? 'Company Address', 0, 'R');
+        // $this->Ln(10);
 
-        // Title at top
-        $this->SetFillColor(43, 139, 255);
+        // Title at top - positioned at top with larger font
+        $this->SetY(10);
+        $this->SetFillColor(0, 128, 128); // Teal
         $this->SetTextColor(255, 255, 255);
-        $this->SetFont('Times', 'B', 22);
-        $this->Cell(0, 12, 'SALES ORDER', 0, 1, 'C', true);
+        $this->SetFont('Helvetica', 'B', 26);
+        $this->Cell(0, 15, 'SALES ORDER', 0, 1, 'C', true);
         $this->SetTextColor(0);
         $this->Ln(5);
     }
 
     function Footer() {
         $this->SetY(-15);
-        $this->SetFont('Times', '', 8);
+        $this->SetFont('Helvetica', '', 8);
         $this->Cell(0, 5, 'Thank you for your business!', 0, 1, 'C');
         $this->Cell(0, 5, 'Page ' . $this->PageNo() . '/{nb}', 0, 0, 'C');
     }
@@ -81,14 +82,14 @@ $SMTP_USERNAME = 'sameerm@techbizinfotech.com';
 $SMTP_PASSWORD = 'Change@1234';
 $SMTP_PORT = 465;
 $SMTP_FROM_EMAIL = 'johnw@techbizinfotech.com';
-$SMTP_FROM_NAME = 'Your Company Sales';
+$SMTP_FROM_NAME = ' Company Sales';
 $SMTP_DEBUG = false;
 $SMTP_TIMEOUT = 30;
 $SMTP_MAX_RETRIES = 3;
 $SMTP_ALLOW_SELF_SIGNED = false;
 
 $ORDER_NOTIFICATION_EMAILS = ['johnw@techbizinfotech.com'];
-$ORDER_CC_EMAILS = ['sameermunid606@gmail.com'];
+$ORDER_CC_EMAILS = ['sameerm@techbizinfotech.com'];
 
 $COMPANY_INFO = [
     'name' => 'Multitools.',
@@ -100,38 +101,41 @@ function generate_sales_order_pdf($order_details, $company_info, $db_conn) {
     $pdf = new PDF('P', 'mm', 'A4', $company_info);
     $pdf->AliasNbPages();
     $pdf->AddPage();
-    $pdf->SetFont('Times', '', 12);
+    $pdf->SetFont('Helvetica', '', 12);
 
     // Order details below title
     $pdf->SetTextColor(0); // Reset to black
-    $pdf->SetFont('Times', '', 12);
+    $pdf->SetFont('Helvetica', '', 12);
     $pdf->Cell(0, 7, 'Order ID: ' . $order_details['sales_order_id'], 0, 1, 'L');
-    $pdf->Cell(0, 7, 'Date: ' . date("F j, Y", strtotime($order_details['document_date'])), 0, 1, 'L');
+    $pdf->Cell(0, 7, 'Date: ' . date("F j, Y H:i:s", strtotime($order_details['document_date'])), 0, 1, 'L');
     $pdf->Ln(10);
 
     // Customer Info
-    $pdf->SetFont('Times', 'B', 11);
-    $pdf->SetFillColor(240, 240, 240); // Light gray
+    $pdf->SetFont('Helvetica', 'B', 11);
+    $pdf->SetFillColor(240, 240, 240); // Soft gray
     $pdf->Cell(0, 8, 'CUSTOMER INFORMATION:', 0, 1, 'L', true);
-    $pdf->SetFont('Times', '', 11);
+    $pdf->SetFont('Helvetica', '', 11);
     $pdf->SetFillColor(255); // Reset
-    $pdf->MultiCell(0, 6, $order_details['customer_name'] . "\n" . $order_details['card_code']);
+    $customerInfo = "Customer Name: " . $order_details['customer_name'] . "\nCustomer Code: " . $order_details['card_code'];
+    $refNo = isset($order_details['customer_ref_no']) && !empty(trim($order_details['customer_ref_no'])) ? trim($order_details['customer_ref_no']) : 'N/A';
+    $customerInfo .= "\nCustomer Ref No.: " . $refNo;
+    $pdf->MultiCell(0, 6, $customerInfo);
     $pdf->Ln(10);
 
     // Table Header - Colorful and evenly spaced
-    $pdf->SetFillColor(43, 139, 255); // Blue
+    $pdf->SetFillColor(0, 128, 128); // Teal
     $pdf->SetTextColor(255, 255, 255); // White
-    $pdf->SetDrawColor(128, 128, 128);
-    $pdf->SetFont('Times', 'B', 10);
+    $pdf->SetDrawColor(200, 200, 200);
+    $pdf->SetFont('Helvetica', 'B', 10);
     $colWidths = [25, 80, 15, 30, 35]; // Even spacing
     $pdf->Cell($colWidths[0], 10, 'Item Code', 1, 0, 'C', true);
     $pdf->Cell($colWidths[1], 10, 'Description', 1, 0, 'C', true);
     $pdf->Cell($colWidths[2], 10, 'Qty', 1, 0, 'C', true);
-    $pdf->Cell($colWidths[3], 10, 'Unit Price', 1, 0, 'C', true);
-    $pdf->Cell($colWidths[4], 10, 'Line Total', 1, 1, 'C', true);
+    $pdf->Cell($colWidths[3], 10, 'Gross Price', 1, 0, 'C', true);
+    $pdf->Cell($colWidths[4], 10, 'Gross Total', 1, 1, 'C', true);
 
     // Table Rows
-    $pdf->SetFont('Courier', '', 10);
+    $pdf->SetFont('Helvetica', '', 10);
     $pdf->SetTextColor(0); // Black
     $pdf->SetFillColor(255); // White
     $subtotal = 0;
@@ -155,7 +159,7 @@ function generate_sales_order_pdf($order_details, $company_info, $db_conn) {
         // Description with MultiCell to handle long names
         $startY = $pdf->GetY();
         $startX = $pdf->GetX();
-        $pdf->MultiCell($colWidths[1], 6, $itemName, 1, 'L');
+        $pdf->MultiCell($colWidths[1], 6, $itemName ?: 'N/A', 1, 'L');
         $endY = $pdf->GetY();
         $rowHeight = $endY - $startY;
         // Qty
@@ -169,9 +173,9 @@ function generate_sales_order_pdf($order_details, $company_info, $db_conn) {
 
     // Totals Section - Remove Subtotal, make colorful
     $pdf->Ln(10);
-    $pdf->SetFillColor(43, 139, 255); // Blue
+    $pdf->SetFillColor(0, 150, 0); // Green accent
     $pdf->SetTextColor(255, 255, 255); // White
-    $pdf->SetFont('Arial', 'B', 14);
+    $pdf->SetFont('Helvetica', 'B', 14);
     $totalWidth = array_sum($colWidths);
     $spacerWidth = $totalWidth - 65; // 30 + 35 for TOTAL and amount
     $pdf->Cell($spacerWidth, 12, '', 0); // Spacer
@@ -761,6 +765,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['action'])) {
                 'customer_name' => $cust_name,
                 'card_code' => $card_code,
                 'document_date' => $document_date,
+                'customer_ref_no' => $customer_ref_no,
                 'lines' => $sap_lines,
             ];
             $pdf_content_string = generate_sales_order_pdf($order_data_for_email, $COMPANY_INFO, $db_conn_post);

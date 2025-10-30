@@ -96,6 +96,16 @@ $COMPANY_INFO = [
     'address' => "123 Business Rd.\nSuite 100\nCity, State 12345\nPhone: (123) 456-7890",
     'logo' => 'techbizlogo.jpeg'
 ];
+$warehouseColumnMap = [
+    '01' => 'Head_office',
+    '02' => 'River_road',
+    '03' => 'Saba_Saba',
+    '04' => 'Digo',
+    '05' => 'ShowRoom',
+    '08' => 'Daresalam',
+    '10' => 'Jomo_Kenyatta',
+    'WH13' => 'Daresalam_Main',
+];
 // ----------------- PDF Generation Function (Actual Implementation) -----------------
 function generate_sales_order_pdf($order_details, $company_info, $db_conn) {
     $pdf = new PDF('P', 'mm', 'A4', $company_info);
@@ -107,7 +117,9 @@ function generate_sales_order_pdf($order_details, $company_info, $db_conn) {
     $pdf->SetTextColor(0); // Reset to black
     $pdf->SetFont('Helvetica', '', 12);
     $pdf->Cell(0, 7, 'Order ID: ' . $order_details['sales_order_id'], 0, 1, 'L');
-    $pdf->Cell(0, 7, 'Date: ' . date("F j, Y H:i:s", strtotime($order_details['document_date'])), 0, 1, 'L');
+    // Use document date with current time in EAT (Kenya timezone)
+    date_default_timezone_set('Africa/Nairobi');
+    $pdf->Cell(0, 7, 'Date: ' . date("F j, Y", strtotime($order_details['document_date'])) . ' ' . date('H:i:s'), 0, 1, 'L');
     $pdf->Ln(10);
 
     // Customer Info
@@ -532,40 +544,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 // ----------------- AJAX Endpoint for Stock Fetching -----------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'get_item_stock') {
     header('Content-Type: application/json');
-    $item_code = $_POST['item_code'] ?? '';
-    $warehouse = $_POST['warehouse'] ?? '';
-    $result = [];
-    $db_conn = new mysqli($DB_HOST, $DB_USER, $DB_PASS, $DB_NAME);
-    if ($db_conn->connect_error) {
-        echo json_encode(['error' => 'Database connection failed']);
+    if ($_SERVER['SERVER_NAME'] === 'localhost') {
+        // Use local DB for localhost
+        $itemCode = trim($_POST['item_code'] ?? '');
+        $warehouses = isset($_POST['warehouses']) ? (is_array($_POST['warehouses']) ? $_POST['warehouses'] : [$_POST['warehouses']]) : [];
+        if (empty($itemCode) || empty($warehouses)) {
+            echo json_encode(['success' => false, 'error' => 'Missing parameters']);
+            exit;
+        }
+        // Check cache first
+        $cacheKey = 'item_stock_' . md5($itemCode . '_' . implode('_', $warehouses));
+        $cacheFile = $CACHE_DIR . '/' . $cacheKey . '.json';
+        if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < $CACHE_TTL) {
+            echo file_get_contents($cacheFile);
+            exit;
+        }
+        // Connect to local DB
+        $db_conn = new mysqli($DB_HOST, $DB_USER, $DB_PASS, $DB_NAME);
+        if ($db_conn->connect_error) {
+            echo json_encode(['success' => false, 'error' => 'DB connection failed']);
+            exit;
+        }
+        $stock = [];
+        foreach ($warehouses as $warehouse) {
+            $column = $warehouseColumnMap[$warehouse] ?? null;
+            if (!$column) {
+                $stock[$warehouse] = 0; // Fallback to 0 if no mapping
+                continue;
+            }
+            $stmt = $db_conn->prepare("SELECT `$column` AS stock FROM warehouse_stock_wide WHERE item_code = ?");
+            $stmt->bind_param("s", $itemCode);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($row = $result->fetch_assoc()) {
+                $stock[$warehouse] = floatval($row['stock'] ?? 0);
+            } else {
+                $stock[$warehouse] = 0;
+            }
+            $stmt->close();
+        }
+        $db_conn->close();
+        $response = json_encode(['success' => true, 'stock' => $stock]);
+        file_put_contents($cacheFile, $response);
+        echo $response;
+        exit;
+    } else {
+        // Use SAP API for production
+        // Original SAP logic here (commented out for now, but you can restore if needed)
+        echo json_encode(['success' => false, 'error' => 'SAP API not implemented in this version']);
         exit;
     }
-    $item_code_safe = $db_conn->real_escape_string($item_code);
-    $allowed_cols = [];
-    $cols_sql = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='" . $db_conn->real_escape_string($DB_NAME) . "' AND TABLE_NAME='warehouse_stock_wide'";
-    if ($cres = $db_conn->query($cols_sql)) {
-        while ($c = $cres->fetch_assoc()) {
-            $cn = $c['COLUMN_NAME'];
-            if (!in_array($cn, ['id','item_code','item_name','fetched_at'])) {
-                $allowed_cols[] = $cn;
-            }
-        }
-        $cres->free();
-    }
-    if (!in_array($warehouse, $allowed_cols)) {
-        $warehouse = $allowed_cols[0] ?? 'Head_office';
-    }
-    $col = '`' . $db_conn->real_escape_string($warehouse) . '`';
-    $query = "SELECT $col AS stock_val FROM warehouse_stock_wide WHERE item_code = '$item_code_safe' LIMIT 1";
-    $res = $db_conn->query($query);
-    if ($res && $row = $res->fetch_assoc()) {
-        $result[$warehouse] = floatval($row['stock_val']);
-    } else {
-        $result[$warehouse] = 0;
-    }
-    $db_conn->close();
-    echo json_encode(['stock' => $result]);
-    exit;
 }
 
 // ----------------- Database connection -----------------
@@ -1217,17 +1245,18 @@ $db_conn->close();
             form.append('action', 'get_item_stock');
             form.append('item_code', codeVal);
             const globalWarehouse = document.getElementById('warehouse_code').value;
-            if (globalWarehouse) form.append('warehouse', globalWarehouse);
+            if (globalWarehouse) form.append('warehouses[]', globalWarehouse);
             const res = await fetch('', {method:'POST', body: form});
             const data = await res.json();
-            if (data && data.stock) {
-              const val = data.stock[globalWarehouse];
-              stockCell.textContent = (typeof val !== 'undefined') ? val : '0';
+            if (data.success && data.stock) {
+              const val = data.stock[globalWarehouse] ?? 0;
+              stockCell.textContent = numberWithCommas(val.toFixed(3)); // Adjust to match your stock format (e.g., 240.000)
             } else {
               stockCell.textContent = '0';
             }
-          } catch {
-            stockCell.textContent = 'Err';
+          } catch (err) {
+            console.error('Stock fetch error:', err);
+            stockCell.textContent = '0';
           }
         }
       }
